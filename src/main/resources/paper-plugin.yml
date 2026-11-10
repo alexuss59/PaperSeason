@@ -1,0 +1,28 @@
+name: PaperSeasons
+version: '1.2.0'
+main: fr.alexuslab.paperseasons.PaperSeasonsPlugin
+description: Moteur de saisons hybride O(1) optimise pour Raspberry Pi 5 (ARM64) et tunnel Playit.gg (compatible Terralith / Incendium / BreweryX)
+api-version: '1.21'
+authors:
+  - alexusLAB
+folia-supported: false
+
+dependencies:
+  server:
+    ProtocolLib:
+      load: BEFORE
+      required: false
+      join-classpath: true
+    packetevents:
+      load: BEFORE
+      required: false
+      join-classpath: true
+    BreweryX:
+      load: AFTER
+      required: false
+      join-classpath: false
+
+permissions:
+  paperseasons.admin:
+    description: Permet de forcer le changement de saison ou de recharger la configuration
+    default: op
