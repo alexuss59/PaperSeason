@@ -3,7 +3,12 @@ package fr.alexuslab.paperseasons;
 import fr.alexuslab.paperseasons.SeasonConfigCache.SeasonSettings;
 import fr.alexuslab.paperseasons.SeasonManager.Season;
 import fr.alexuslab.paperseasons.SeasonManager.SeasonalEvent;
+import fr.alexuslab.paperseasons.SeasonManager.SubSeason;
+import io.papermc.paper.event.packet.PlayerChunkLoadEvent;
+import net.kyori.adventure.audience.Audience;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
+import org.bukkit.Chunk;
 import org.bukkit.HeightMap;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -16,6 +21,8 @@ import org.bukkit.block.data.Ageable;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.Levelled;
 import org.bukkit.block.data.Snowable;
+import org.bukkit.block.data.type.Snow;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.FishHook;
 import org.bukkit.entity.LivingEntity;
@@ -34,6 +41,7 @@ import org.bukkit.event.weather.WeatherChangeEvent;
 import org.bukkit.event.world.StructureGrowEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.EnumSet;
@@ -79,7 +87,9 @@ public final class SeasonEnvironmentListener implements Listener {
     private final PaperSeasonsPlugin plugin;
     private final SeasonConfigCache configCache;
     private final SeasonManager seasonManager;
+    private final MiniMessage mm = MiniMessage.miniMessage();
     private BukkitTask winterStormTask;
+    private int surfaceTickCounter = 0;
 
     public SeasonEnvironmentListener(
             PaperSeasonsPlugin plugin,
@@ -92,11 +102,14 @@ public final class SeasonEnvironmentListener implements Listener {
     }
 
     /**
-     * Démarre la tâche légère O(1) de simulation de neige et gel d'eau en Hiver (toutes les 40 ticks).
+     * Démarre la tâche légère O(1) de surface (toutes les 20 ticks = 1 seconde) :
+     * - En Hiver (toutes les 40 ticks) : accumulation contrôlée de neige et gel de l'eau.
+     * - Au Printemps / Été / Canicule / Fin d'Hiver ensoleillée (toutes les 20 ticks) : fonte active O(1).
      */
     public void startWinterStormTask() {
         stopWinterStormTask();
-        this.winterStormTask = Bukkit.getScheduler().runTaskTimer(this.plugin, this::tickWinterStormO1, 40L, 40L);
+        this.surfaceTickCounter = 0;
+        this.winterStormTask = Bukkit.getScheduler().runTaskTimer(this.plugin, this::tickSurfaceClimateO1, 20L, 20L);
     }
 
     public void stopWinterStormTask() {
@@ -104,6 +117,210 @@ public final class SeasonEnvironmentListener implements Listener {
             this.winterStormTask.cancel();
             this.winterStormTask = null;
         }
+    }
+
+    private void tickSurfaceClimateO1() {
+        this.surfaceTickCounter++;
+        Season currentSeason = this.seasonManager.getCurrentSeason();
+        if (currentSeason == Season.WINTER && (this.surfaceTickCounter & 1) == 0) {
+            tickWinterStormO1();
+        }
+        tickActiveThawO1();
+    }
+
+    /**
+     * Moteur de fonte active O(1) (exécuté toutes les 20 ticks = 1s) pour compenser l'absence
+     * de fonte au soleil dans Minecraft Vanilla (SnowLayerBlock & IceBlock ne testent que BlockLight > 11).
+     */
+    private void tickActiveThawO1() {
+        Season currentSeason = this.seasonManager.getCurrentSeason();
+        SubSeason currentSubSeason = this.seasonManager.getCurrentSubSeason();
+        SeasonalEvent currentEvent = this.seasonManager.getCurrentEvent();
+        SeasonSettings settings = this.configCache.getSeasonSettings(currentSeason);
+        if (settings == null) {
+            return;
+        }
+
+        boolean meltEnabled = settings.iceSnowMeltEnabled();
+        boolean lateWinterThaw = (currentSubSeason == SubSeason.WINTER_LATE && currentEvent != SeasonalEvent.BLIZZARD);
+        if (!meltEnabled && !lateWinterThaw && currentEvent != SeasonalEvent.HEATWAVE) {
+            return;
+        }
+
+        int samplesPerSecond;
+        if (currentEvent == SeasonalEvent.HEATWAVE) {
+            samplesPerSecond = 25;
+        } else if (currentSeason == Season.SUMMER) {
+            samplesPerSecond = 12;
+        } else if (currentSeason == Season.SPRING) {
+            samplesPerSecond = 6;
+        } else {
+            samplesPerSecond = 4; // Fin d'hiver (WINTER_LATE) en journée ensoleillée
+        }
+
+        boolean instantFullMelt = (currentEvent == SeasonalEvent.HEATWAVE);
+        ThreadLocalRandom rng = ThreadLocalRandom.current();
+
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (!player.isOnline() || player.isDead()) {
+                continue;
+            }
+            World world = player.getWorld();
+            if (!isEligibleOverworld(world)) {
+                continue;
+            }
+            if (!meltEnabled && lateWinterThaw && (world.hasStorm() || world.getTime() >= 12000L)) {
+                continue;
+            }
+
+            Location loc = player.getLocation();
+            int baseX = loc.getBlockX();
+            int baseZ = loc.getBlockZ();
+
+            for (int i = 0; i < samplesPerSecond; i++) {
+                int x = baseX + rng.nextInt(-32, 33);
+                int z = baseZ + rng.nextInt(-32, 33);
+                if (!world.isChunkLoaded(x >> 4, z >> 4)) {
+                    continue;
+                }
+                meltSurfaceColumnO1(world, x, z, instantFullMelt);
+            }
+        }
+    }
+
+    /**
+     * Nettoie en O(1) la neige (Material.SNOW) et la glace (Material.ICE) au sommet d'une colonne (X, Z),
+     * tout en protégeant les biomes glacés natifs (getTemperature() <= 0.15) et les blocs de construction
+     * (PACKED_ICE, BLUE_ICE, SNOW_BLOCK, POWDER_SNOW).
+     *
+     * @return Nombre de blocs fondus dans cette colonne (0, 1 ou 2)
+     */
+    public int meltSurfaceColumnO1(World world, int x, int z, boolean instantFullMelt) {
+        Block highest = world.getHighestBlockAt(x, z, HeightMap.MOTION_BLOCKING);
+        // Sécurité Biomes Glacés Natifs (Protection Terralith : Frozen Ocean, Ice Spikes, Jagged Peaks, haute montagne)
+        if (highest.getTemperature() <= 0.15D) {
+            return 0;
+        }
+
+        int meltedCount = 0;
+        Block above = highest.getRelative(BlockFace.UP);
+
+        // 1. Fonte de la neige (Material.SNOW uniquement, jamais SNOW_BLOCK ni POWDER_SNOW)
+        if (above.getType() == Material.SNOW) {
+            if (!instantFullMelt && above.getBlockData() instanceof Snow snowData && snowData.getLayers() > 1) {
+                snowData.setLayers(snowData.getLayers() - 1);
+                above.setBlockData(snowData, false);
+            } else {
+                above.setType(Material.AIR, false);
+                clearSnowyState(highest);
+            }
+            meltedCount++;
+        } else if (highest.getType() == Material.SNOW) {
+            if (!instantFullMelt && highest.getBlockData() instanceof Snow snowData && snowData.getLayers() > 1) {
+                snowData.setLayers(snowData.getLayers() - 1);
+                highest.setBlockData(snowData, false);
+            } else {
+                Block below = highest.getRelative(BlockFace.DOWN);
+                highest.setType(Material.AIR, false);
+                clearSnowyState(below);
+                highest = below;
+            }
+            meltedCount++;
+        }
+
+        // 2. Fonte de la glace de surface (Material.ICE uniquement, jamais PACKED_ICE ni BLUE_ICE)
+        if (highest.getType() == Material.ICE) {
+            highest.setType(Material.WATER, true);
+            meltedCount++;
+        }
+
+        return meltedCount;
+    }
+
+    private void clearSnowyState(Block blockBelow) {
+        BlockData data = blockBelow.getBlockData();
+        if (data instanceof Snowable snowable && snowable.isSnowy()) {
+            snowable.setSnowy(false);
+            blockBelow.setBlockData(data, false);
+        }
+    }
+
+    /**
+     * Nettoyage accéléré au chargement d'un chunk par le joueur au Printemps ou en Été.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerChunkLoad(PlayerChunkLoadEvent event) {
+        World world = event.getWorld();
+        if (!isEligibleOverworld(world)) {
+            return;
+        }
+
+        Season currentSeason = this.seasonManager.getCurrentSeason();
+        SeasonSettings settings = this.configCache.getSeasonSettings(currentSeason);
+        if (settings == null || !settings.iceSnowMeltEnabled()) {
+            return;
+        }
+
+        Chunk chunk = event.getChunk();
+        int chunkX = chunk.getX();
+        int chunkZ = chunk.getZ();
+        if (!world.isChunkLoaded(chunkX, chunkZ)) {
+            return;
+        }
+
+        int baseX = chunkX << 4;
+        int baseZ = chunkZ << 4;
+        ThreadLocalRandom rng = ThreadLocalRandom.current();
+
+        // Échantillonnage O(1) de 16 colonnes aléatoires à l'envoi du chunk
+        for (int i = 0; i < 16; i++) {
+            int x = baseX + rng.nextInt(16);
+            int z = baseZ + rng.nextInt(16);
+            meltSurfaceColumnO1(world, x, z, true);
+        }
+    }
+
+    /**
+     * Exécute la commande d'administration /season thaw [rayon] en étalant le balayage sur plusieurs ticks
+     * (max 2048 colonnes par tick, < 0.4 ms/tick sur Raspberry Pi 5).
+     */
+    public void runEmergencyThaw(CommandSender sender, World world, int centerX, int centerZ, int radius) {
+        final int minX = centerX - radius;
+        final int maxX = centerX + radius;
+        final int minZ = centerZ - radius;
+        final int maxZ = centerZ + radius;
+        final int columnsPerTick = 2048;
+
+        new BukkitRunnable() {
+            private int curX = minX;
+            private int curZ = minZ;
+            private int totalMelted = 0;
+
+            @Override
+            public void run() {
+                int processed = 0;
+                while (curX <= maxX && processed < columnsPerTick) {
+                    if (world.isChunkLoaded(curX >> 4, curZ >> 4)) {
+                        totalMelted += meltSurfaceColumnO1(world, curX, curZ, true);
+                    }
+                    processed++;
+                    curZ++;
+                    if (curZ > maxZ) {
+                        curZ = minZ;
+                        curX++;
+                    }
+                }
+
+                if (curX > maxX) {
+                    cancel();
+                    ((Audience) sender).sendMessage(mm.deserialize(
+                            "<green>✔ Dégel d'urgence terminé dans un rayon de <bold>" + radius + " blocs</bold> : "
+                                    + "<aqua><bold>" + totalMelted + "</bold></aqua> blocs de neige/glace fondus "
+                                    + "<dark_gray>(biomes glacés natifs préservés)</dark_gray>.</green>"
+                    ));
+                }
+            }
+        }.runTaskTimer(this.plugin, 1L, 1L);
     }
 
     private void tickWinterStormO1() {

@@ -21,12 +21,12 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Commande principale /season v1.2.0 (calendar, status, event, set, next, nextday, reload).
+ * Commande principale /season v1.2.1 (calendar, status, thaw, event, set, next, nextday, reload).
  */
 public final class SeasonCommand extends Command {
 
     private static final List<String> SUBCOMMANDS_ADMIN = List.of(
-            "calendar", "status", "event", "set", "next", "nextday", "reload"
+            "calendar", "status", "thaw", "event", "set", "next", "nextday", "reload"
     );
     private static final List<String> SUBCOMMANDS_PLAYER = List.of("calendar", "status");
 
@@ -36,8 +36,8 @@ public final class SeasonCommand extends Command {
     public SeasonCommand(PaperSeasonsPlugin plugin) {
         super(
                 "season",
-                "Affiche l'Almanach des Saisons ou contrôle PaperSeasons v1.2.0",
-                "/season [calendar|status|event <type>|set <saison>|next|nextday|reload]",
+                "Affiche l'Almanach des Saisons ou contrôle PaperSeasons v1.2.1",
+                "/season [calendar|status|thaw [rayon]|event <type>|set <saison>|next|nextday|reload]",
                 List.of("seasons", "paperseasons")
         );
         this.plugin = plugin;
@@ -69,6 +69,66 @@ public final class SeasonCommand extends Command {
             }
             case "status" -> {
                 handleStatus(sender);
+                return true;
+            }
+            case "thaw" -> {
+                if (!checkAdminPermission(sender)) {
+                    return true;
+                }
+                int radius = 48;
+                if (args.length >= 2) {
+                    try {
+                        radius = Math.clamp(Integer.parseInt(args[1]), 1, 128);
+                    } catch (NumberFormatException ex) {
+                        sendMsg(sender, "<red>Rayon invalide. Usage : /season thaw [1..128] (défaut : 48).</red>");
+                        return true;
+                    }
+                }
+
+                SeasonEnvironmentListener env = this.plugin.getEnvironmentListener();
+                if (env == null) {
+                    sendMsg(sender, "<red>Erreur : SeasonEnvironmentListener non initialisé.</red>");
+                    return true;
+                }
+
+                World targetWorld = null;
+                int centerX = 0;
+                int centerZ = 0;
+
+                if (sender instanceof Player player) {
+                    targetWorld = player.getWorld();
+                    centerX = player.getLocation().getBlockX();
+                    centerZ = player.getLocation().getBlockZ();
+                } else {
+                    for (Player online : Bukkit.getOnlinePlayers()) {
+                        if (this.plugin.getConfigCache().isWorldEnabled(online.getWorld().getName())) {
+                            targetWorld = online.getWorld();
+                            centerX = online.getLocation().getBlockX();
+                            centerZ = online.getLocation().getBlockZ();
+                            break;
+                        }
+                    }
+                    if (targetWorld == null) {
+                        for (String wName : this.plugin.getConfigCache().getEnabledWorlds()) {
+                            World w = Bukkit.getWorld(wName);
+                            if (w != null) {
+                                targetWorld = w;
+                                centerX = w.getSpawnLocation().getBlockX();
+                                centerZ = w.getSpawnLocation().getBlockZ();
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (targetWorld == null) {
+                    sendMsg(sender, "<red>Aucun monde Overworld actif trouvé pour le dégel.</red>");
+                    return true;
+                }
+
+                sendMsg(sender, "<yellow>⏳ Lancement du dégel d'urgence autour de (" + centerX + ", " + centerZ
+                        + ") dans <bold>" + targetWorld.getName() + "</bold> (rayon : " + radius + " blocs)...</yellow>");
+                env.runEmergencyThaw(sender, targetWorld, centerX, centerZ, radius);
                 return true;
             }
             case "event" -> {
@@ -145,11 +205,11 @@ public final class SeasonCommand extends Command {
                     return true;
                 }
                 this.plugin.reloadPluginConfig();
-                sendMsg(sender, "<green>✔ Configuration PaperSeasons v1.2.0 et caches O(1) rechargés.</green>");
+                sendMsg(sender, "<green>✔ Configuration PaperSeasons v1.2.1 et caches O(1) rechargés.</green>");
                 return true;
             }
             default -> {
-                sendMsg(sender, "<red>Sous-commande inconnue. Utilisez <white>/season [calendar|status|event|set|next|nextday|reload]</white>.</red>");
+                sendMsg(sender, "<red>Sous-commande inconnue. Utilisez <white>/season [calendar|status|thaw|event|set|next|nextday|reload]</white>.</red>");
                 return true;
             }
         }
@@ -180,7 +240,7 @@ public final class SeasonCommand extends Command {
 
         sendMsg(sender,
                 "<dark_gray><strikethrough>⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯</strikethrough></dark_gray> "
-                        + "<gradient:#76FF03:#00E5FF><bold>PaperSeasons v1.2</bold></gradient> "
+                        + "<gradient:#76FF03:#00E5FF><bold>PaperSeasons v1.2.1</bold></gradient> "
                         + "<dark_gray><strikethrough>⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯</strikethrough></dark_gray>"
         );
         sendMsg(sender,
@@ -313,6 +373,12 @@ public final class SeasonCommand extends Command {
                 for (SeasonalEvent ev : SeasonalEvent.values()) {
                     if (ev.name().startsWith(prefix)) {
                         matches.add(ev.name());
+                    }
+                }
+            } else if (sub.equals("thaw")) {
+                for (String r : List.of("32", "48", "64", "96", "128")) {
+                    if (r.startsWith(prefix)) {
+                        matches.add(r);
                     }
                 }
             }

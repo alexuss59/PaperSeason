@@ -57,7 +57,7 @@ public final class PaperSeasonsPlugin extends JavaPlugin implements Listener {
         // 7. Enregistrement natif de la commande /season dans la CommandMap Paper
         Bukkit.getCommandMap().register("paperseasons", new SeasonCommand(this));
 
-        getLogger().info("[PaperSeasons] v1.2.0 Activé avec succès (Saison : "
+        getLogger().info("[PaperSeasons] v1.2.1 Activé avec succès (Saison : "
                 + this.seasonManager.getCurrentSeason().name()
                 + " [" + this.seasonManager.getCurrentSubSeason().name() + "], Jour "
                 + this.seasonManager.getCurrentDayInSeason()
@@ -114,6 +114,10 @@ public final class PaperSeasonsPlugin extends JavaPlugin implements Listener {
 
     public TemperatureTask getTemperatureTask() {
         return this.temperatureTask;
+    }
+
+    public SeasonEnvironmentListener getEnvironmentListener() {
+        return this.environmentListener;
     }
 
     public BiomePacketSpoofer getBiomePacketSpoofer() {

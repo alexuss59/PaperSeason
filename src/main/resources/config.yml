@@ -1,5 +1,5 @@
 # ==============================================================================
-# PaperSeasons v1.2.0 ("Atmospheric, Almanac & Events Update")
+# PaperSeasons v1.2.1 ("Active Snow & Ice Thaw Update")
 # Architecture Haute Performance (Raspberry Pi 5 ARM64 + Playit.gg + Terralith)
 # Objectif CPU : < 0.5 ms MSPT (Zéro scan de blocs par tick, caches EnumMap O(1))
 # ==============================================================================

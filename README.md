@@ -1,4 +1,4 @@
-# 🍂 PaperSeasons v1.1.0 — Realism & Ecosystem Update
+# 🍂 PaperSeasons v1.2.1 — Active Thaw, Almanac & Atmospheric Update
 
 **PaperSeasons** est un système hybride complet composé d’un **Plugin PaperMC haute performance** (logique $O(1)$ stricte) et d’un **Data Pack compagnon** (`paper_seasons_dp`), conçu sur mesure pour tourner sur un **Raspberry Pi 5 (ARM64)** derrière un tunnel réseau **Playit.gg**, tout en cohabitant harmonieusement avec **Paper 26.2**, **Terralith**, **Incendium** et **BreweryX**.
 
