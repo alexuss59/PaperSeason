@@ -41,10 +41,21 @@ import org.bukkit.event.weather.WeatherChangeEvent;
 import org.bukkit.event.world.StructureGrowEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.GameMode;
+import org.bukkit.Sound;
+import org.bukkit.entity.Item;
+import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.world.ClockTimeSkipEvent;
+import org.bukkit.event.world.TimeSkipEvent;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.title.Title;
 
+import java.time.Duration;
 import java.util.EnumSet;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -90,6 +101,12 @@ public final class SeasonEnvironmentListener implements Listener {
     private final MiniMessage mm = MiniMessage.miniMessage();
     private BukkitTask winterStormTask;
     private int surfaceTickCounter = 0;
+    private long lastForecastMs = 0L;
+
+    private static final EnumSet<Material> FORAGE_BUSHES = EnumSet.of(
+            Material.FERN, Material.LARGE_FERN, Material.BUSH, Material.FIREFLY_BUSH,
+            Material.DEAD_BUSH, Material.SWEET_BERRY_BUSH
+    );
 
     public SeasonEnvironmentListener(
             PaperSeasonsPlugin plugin,
@@ -760,6 +777,38 @@ public final class SeasonEnvironmentListener implements Listener {
         UUID playerId = player.getUniqueId();
         Season currentSeason = this.seasonManager.getCurrentSeason();
 
+        // 0. v1.3.0 : Mets et cueillettes de saison (tag PDC season_food)
+        SeasonCraftingManager crafting = this.plugin.getCraftingManager();
+        String foodTag = (crafting != null) ? crafting.getFoodTag(item) : null;
+        if (foodTag != null) {
+            switch (foodTag) {
+                case SeasonCraftingManager.FOOD_SPICY_SOUP -> {
+                    if (currentSeason != Season.SUMMER) {
+                        tempTask.grantCustomBuff(playerId, 6.0D, 180_000L);
+                        sendActionBar(player, "<gold>🍲 Soupe Forestière Épicée : +6.0°C pendant 3 minutes</gold>");
+                    }
+                }
+                case SeasonCraftingManager.FOOD_GOLDEN_MUSHROOM, SeasonCraftingManager.FOOD_WILD_BERRIES -> {
+                    tempTask.grantCustomBuff(playerId, 3.0D, 90_000L);
+                    sendActionBar(player, "<gold>🔥 Douce chaleur : +3.0°C pendant 90 secondes</gold>");
+                }
+                case SeasonCraftingManager.FOOD_SUMMER_APPLE -> {
+                    tempTask.grantCustomBuff(playerId, -4.0D, 90_000L);
+                    player.setExhaustion(0.0F);
+                    player.removePotionEffect(PotionEffectType.HUNGER);
+                    sendActionBar(player, "<aqua>🍏 Fraîcheur juteuse : -4.0°C et fatigue dissipée</aqua>");
+                }
+                case SeasonCraftingManager.FOOD_ICE_CATCH -> {
+                    player.setFoodLevel(Math.min(20, player.getFoodLevel() + 4));
+                    player.setSaturation(Math.min(player.getFoodLevel(), player.getSaturation() + 4.0F));
+                    sendActionBar(player, "<aqua>🐟 Prise des Glaces : repas copieux (+4 nourriture)</aqua>");
+                }
+                default -> {
+                }
+            }
+            return;
+        }
+
         // 1. Ragoûts et soupes chaudes : +4.0°C pendant 90s
         if (HOT_STEW_MATERIALS.contains(type)) {
             tempTask.grantWarmingBuff(playerId);
@@ -785,6 +834,162 @@ public final class SeasonEnvironmentListener implements Listener {
                 player.setExhaustion(Math.max(0.0F, player.getExhaustion() - 0.5F));
             }
         }
+    }
+
+    // =========================================================================
+    // 10. CUEILLETTES DE SAISON v1.3.0 (BlockBreakEvent)
+    // =========================================================================
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onSeasonalForaging(BlockBreakEvent event) {
+        Player player = event.getPlayer();
+        if (player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR) {
+            return;
+        }
+        Block block = event.getBlock();
+        World world = block.getWorld();
+        if (!isEligibleOverworld(world)) {
+            return;
+        }
+        SeasonCraftingManager crafting = this.plugin.getCraftingManager();
+        if (crafting == null) {
+            return;
+        }
+
+        Material type = block.getType();
+        Season season = this.seasonManager.getCurrentSeason();
+        ThreadLocalRandom rng = ThreadLocalRandom.current();
+        ItemStack drop = null;
+
+        if (season == Season.AUTUMN) {
+            if ((Tag.LEAVES.isTagged(type) || FORAGE_BUSHES.contains(type)) && rng.nextDouble() < 0.04D) {
+                drop = rng.nextBoolean() ? crafting.createGoldenMushroom() : crafting.createWildBerries(1 + rng.nextInt(3));
+            }
+        } else if (season == Season.SUMMER) {
+            if ((type == Material.OAK_LEAVES || type == Material.DARK_OAK_LEAVES) && rng.nextDouble() < 0.03D) {
+                drop = crafting.createSummerApple();
+            }
+        }
+
+        if (drop != null) {
+            world.dropItemNaturally(block.getLocation().add(0.5D, 0.5D, 0.5D), drop);
+            player.playSound(block.getLocation(), Sound.ENTITY_ITEM_PICKUP, 0.6F, 1.4F);
+        }
+    }
+
+    // =========================================================================
+    // 11. PÊCHE HIVERNALE « PRISE DES GLACES » v1.3.0 (PlayerFishEvent CAUGHT_FISH)
+    // =========================================================================
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onWinterIceCatch(PlayerFishEvent event) {
+        if (event.getState() != PlayerFishEvent.State.CAUGHT_FISH
+                || this.seasonManager.getCurrentSeason() != Season.WINTER
+                || !isEligibleOverworld(event.getPlayer().getWorld())
+                || !(event.getCaught() instanceof Item caughtItem)) {
+            return;
+        }
+        SeasonCraftingManager crafting = this.plugin.getCraftingManager();
+        if (crafting == null || ThreadLocalRandom.current().nextDouble() >= 0.20D) {
+            return;
+        }
+        ItemStack stack = caughtItem.getItemStack();
+        Material fishType = stack.getType();
+        if (fishType != Material.COD && fishType != Material.SALMON
+                && fishType != Material.COOKED_COD && fishType != Material.COOKED_SALMON) {
+            return;
+        }
+        crafting.tagAsIceCatch(stack);
+        caughtItem.setItemStack(stack);
+        event.setExpToDrop(Math.max(2, event.getExpToDrop() * 2));
+        sendActionBar(event.getPlayer(), "<aqua>🐟 Prise des Glaces ! XP doublée</aqua>");
+    }
+
+    // =========================================================================
+    // 12. BULLETIN MÉTÉO AU RÉVEIL v1.3.0 (TimeSkipEvent / ClockTimeSkipEvent NIGHT_SKIP)
+    // =========================================================================
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onNightSkip(TimeSkipEvent event) {
+        if (event.getSkipReason() == ClockTimeSkipEvent.SkipReason.NIGHT_SKIP) {
+            scheduleMorningForecast();
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onClockNightSkip(ClockTimeSkipEvent event) {
+        if (event.getSkipReason() == ClockTimeSkipEvent.SkipReason.NIGHT_SKIP) {
+            scheduleMorningForecast();
+        }
+    }
+
+    private void scheduleMorningForecast() {
+        long now = System.currentTimeMillis();
+        if (now - this.lastForecastMs < 10_000L) {
+            return; // Anti-doublon (TimeSkipEvent + ClockTimeSkipEvent)
+        }
+        this.lastForecastMs = now;
+        // Délai de 3s : laisse le calendrier détecter le nouveau jour et tirer l'événement climatique
+        Bukkit.getScheduler().runTaskLater(this.plugin, this::broadcastMorningForecast, 60L);
+    }
+
+    public void broadcastMorningForecast() {
+        SeasonManager sm = this.seasonManager;
+        Season season = sm.getCurrentSeason();
+        SubSeason sub = sm.getCurrentSubSeason();
+        SeasonalEvent ev = sm.getCurrentEvent();
+        SeasonSettings settings = this.configCache.getSeasonSettings(season);
+        SeasonConfigCache.SubSeasonSettings subSettings = this.configCache.getSubSeasonSettings(sub);
+        String subLabel = (subSettings != null) ? subSettings.displayNameRaw() : sub.name();
+        String phase = switch (sub.getPhaseIndex()) {
+            case 0 -> "Début";
+            case 1 -> "Milieu";
+            default -> "Fin";
+        };
+        TemperatureTask tempTask = this.plugin.getTemperatureTask();
+
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            World world = player.getWorld();
+            if (!isEligibleOverworld(world)) {
+                continue;
+            }
+            String trend;
+            if (ev == SeasonalEvent.BLIZZARD) {
+                trend = "<aqua>🌨️ Blizzard polaire</aqua>";
+            } else if (ev == SeasonalEvent.HEATWAVE) {
+                trend = "<gold>🔥 Canicule écrasante</gold>";
+            } else if (ev == SeasonalEvent.AUTUMN_MIST) {
+                trend = "<gray>🌫️ Brume et bruine</gray>";
+            } else if (ev == SeasonalEvent.SPRING_BLOOM) {
+                trend = "<light_purple>🌸 Floraison radieuse</light_purple>";
+            } else if (world.hasStorm()) {
+                trend = (season == Season.WINTER) ? "<white>❄️ Chutes de neige</white>" : "<blue>🌧️ Pluvieux</blue>";
+            } else {
+                trend = "<yellow>☀️ Ensoleillé</yellow>";
+            }
+
+            String tempLabel = "<dark_gray>n/a</dark_gray>";
+            if (tempTask != null && settings != null) {
+                double t = tempTask.computePlayerTemperatureO1(player, world, season, settings);
+                tempLabel = "<aqua>" + String.format(Locale.US, "%+.1f°C", t) + "</aqua>";
+            }
+
+            ((Audience) player).sendMessage(this.mm.deserialize(
+                    "<dark_gray>⎯⎯⎯⎯⎯</dark_gray> <gradient:#FFD600:#FF8F00><bold>☀ Bulletin du Matin</bold></gradient> <dark_gray>⎯⎯⎯⎯⎯</dark_gray>\n"
+                            + "<gray>• Jour :</gray> <white>Jour " + sm.getCurrentDayInSeason() + "/" + this.configCache.getDaysPerSeason()
+                            + " — Année " + sm.getCurrentYear() + "</white>\n"
+                            + "<gray>• Saison :</gray> " + subLabel + " <dark_gray>(" + phase + " de saison)</dark_gray>\n"
+                            + "<gray>• Tendance :</gray> " + trend + "\n"
+                            + "<gray>• Température matinale :</gray> " + tempLabel
+            ));
+            ((Audience) player).showTitle(Title.title(
+                    Component.empty(),
+                    this.mm.deserialize("<gray>Jour " + sm.getCurrentDayInSeason() + " ｜ </gray>" + trend
+                            + " <gray>｜</gray> " + tempLabel),
+                    Title.Times.times(Duration.ofMillis(400), Duration.ofMillis(3000), Duration.ofMillis(800))
+            ));
+        }
+    }
+
+    private void sendActionBar(Player player, String miniMessage) {
+        ((Audience) player).sendActionBar(this.mm.deserialize(miniMessage));
     }
 
     private boolean isCustomBreweryPotion(ItemStack item) {

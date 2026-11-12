@@ -42,6 +42,7 @@ public final class SeasonCalendarGui implements Listener {
     private static final int SLOT_AUTUMN = 14;
     private static final int SLOT_WINTER = 16;
     private static final int SLOT_THERMAL = 22;
+    private static final int SLOT_CRAFTING_FORAGING = 24;
 
     public static final class AlmanacHolder implements InventoryHolder {
         private Inventory inventory;
@@ -231,6 +232,48 @@ public final class SeasonCalendarGui implements Listener {
                     freezePct > 0 || b.totalTemperature() > cache.getHeatstrokeThresholdCelsius()
             ));
         }
+
+        // 4. Slot 24 : Guide d'Artisanat Thermique & Cueillettes de la Saison active (v1.3.0)
+        List<String> craftLore = new ArrayList<>();
+        craftLore.add("<dark_gray>⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯</dark_gray>");
+        craftLore.add("<white><bold>⚒️ Doublures d'Armure (Enclume — 3 niv.) :</bold></white>");
+        craftLore.add("  <aqua>❄️ Doublure Polaire (+2.5°C/pièce en Hiver/Automne)</aqua>");
+        craftLore.add("    <gray>» Armure + <white>Laine</white> ou <white>Peau de lapin</white></gray>");
+        craftLore.add("  <gold>☀️ Doublure Respirante (-2.5°C/pièce en Été)</gold>");
+        craftLore.add("    <gray>» Armure + <white>Boule de neige</white>, <white>Glace</white> ou <white>Bambou</white></gray>");
+        craftLore.add("");
+        craftLore.add("<white><bold>🍲 Cuisine de Survie (Table de Craft) :</bold></white>");
+        craftLore.add("  <gold>🍲 Soupe Forestière Épicée (+6.0°C, 3 min)</gold>");
+        craftLore.add("    <gray>» Bol + Champignon + Patate cuite + Baies sucrées</gray>");
+        craftLore.add("");
+        craftLore.add("<white><bold>🌿 Cueillettes de la Saison Active :</bold></white>");
+        switch (currentSeason) {
+            case SPRING -> {
+                craftLore.add("  <green>🌸 Printemps : Récoltes agricoles boostées (+35%)</green>");
+                craftLore.add("  <light_purple>🐣 Naissances gémellaires d'élevage (25%)</light_purple>");
+            }
+            case SUMMER -> {
+                craftLore.add("  <green>🍏 Pomme Juteuse d'Été (-4.0°C, 90s & anti-fatigue)</green>");
+                craftLore.add("    <gray>» 3% en cassant des feuilles de Chêne / Chêne noir</gray>");
+            }
+            case AUTUMN -> {
+                craftLore.add("  <gold>🍄 Champignon d'Automne Doré (+3.0°C, 90s)</gold>");
+                craftLore.add("  <light_purple>🍒 Baies Sauvages Sucrées (+3.0°C, 90s)</light_purple>");
+                craftLore.add("    <gray>» 4% en cassant feuilles, fougères ou buissons</gray>");
+            }
+            case WINTER -> {
+                craftLore.add("  <aqua>🐟 Prise des Glaces (+4 Nourriture & XP x2)</aqua>");
+                craftLore.add("    <gray>» 20% lors d'une prise de cabillaud/saumon à la pêche</gray>");
+            }
+        }
+        craftLore.add("<dark_gray>⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯</dark_gray>");
+
+        inv.setItem(SLOT_CRAFTING_FORAGING, createItem(
+                Material.ANVIL,
+                "<gradient:#FFAB00:#FF6D00><bold>⚒️ Artisanat Thermique & Cueillettes</bold></gradient>",
+                craftLore,
+                false
+        ));
     }
 
     private ItemStack buildSeasonIcon(

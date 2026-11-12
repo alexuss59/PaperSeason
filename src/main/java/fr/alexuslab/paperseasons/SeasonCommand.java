@@ -36,7 +36,7 @@ public final class SeasonCommand extends Command {
     public SeasonCommand(PaperSeasonsPlugin plugin) {
         super(
                 "season",
-                "Affiche l'Almanach des Saisons ou contrôle PaperSeasons v1.2.1",
+                "Affiche l'Almanach des Saisons ou contrôle PaperSeasons v1.3.0",
                 "/season [calendar|status|thaw [rayon]|event <type>|set <saison>|next|nextday|reload]",
                 List.of("seasons", "paperseasons")
         );
@@ -205,7 +205,7 @@ public final class SeasonCommand extends Command {
                     return true;
                 }
                 this.plugin.reloadPluginConfig();
-                sendMsg(sender, "<green>✔ Configuration PaperSeasons v1.2.1 et caches O(1) rechargés.</green>");
+                sendMsg(sender, "<green>✔ Configuration PaperSeasons v1.3.0 et caches O(1) rechargés.</green>");
                 return true;
             }
             default -> {
@@ -240,7 +240,7 @@ public final class SeasonCommand extends Command {
 
         sendMsg(sender,
                 "<dark_gray><strikethrough>⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯</strikethrough></dark_gray> "
-                        + "<gradient:#76FF03:#00E5FF><bold>PaperSeasons v1.2.1</bold></gradient> "
+                        + "<gradient:#76FF03:#00E5FF><bold>PaperSeasons v1.3.0</bold></gradient> "
                         + "<dark_gray><strikethrough>⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯</strikethrough></dark_gray>"
         );
         sendMsg(sender,

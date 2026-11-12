@@ -13,6 +13,8 @@ import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.Sound;
 import org.bukkit.World;
@@ -88,6 +90,9 @@ public final class TemperatureTask implements Runnable {
     private final Map<UUID, Integer> virtualFreezeTicks = new HashMap<>();
     private final Map<UUID, Long> coolingBuffExpiry = new HashMap<>();
     private final Map<UUID, Long> warmingBuffExpiry = new HashMap<>();
+    private final Map<UUID, double[]> customWarmBuffs = new HashMap<>();
+    private final Map<UUID, double[]> customCoolBuffs = new HashMap<>();
+    private final NamespacedKey liningKey;
 
     // Hook réflexion léger vers BreweryX (com.dre.brewery.BPlayer) mis en cache une seule fois
     private boolean breweryReflectionInitialized = false;
@@ -100,6 +105,7 @@ public final class TemperatureTask implements Runnable {
         this.plugin = plugin;
         this.configCache = configCache;
         this.seasonManager = seasonManager;
+        this.liningKey = new NamespacedKey(plugin, "thermal_lining");
     }
 
     public void start() {
@@ -360,6 +366,19 @@ public final class TemperatureTask implements Runnable {
                         pieceBonus *= metalColdMultiplier;
                     }
                     armorBonus += pieceBonus;
+
+                    // v1.3.0 : Doublures thermiques artisanales (PersistentDataContainer "thermal_lining")
+                    String lining = piece.getPersistentDataContainer().get(this.liningKey, PersistentDataType.STRING);
+                    if (lining != null) {
+                        if (SeasonCraftingManager.LINING_WARM.equals(lining)
+                                && (currentSeason == Season.WINTER || currentSeason == Season.AUTUMN)) {
+                            armorBonus += SeasonCraftingManager.LINING_CELSIUS;
+                            hasLeatherOrWarmTrim = true;
+                        } else if (SeasonCraftingManager.LINING_COOL.equals(lining)
+                                && (currentSeason == Season.SUMMER || dryAmbientTemp > 30.0D)) {
+                            armorBonus -= SeasonCraftingManager.LINING_CELSIUS;
+                        }
+                    }
                 }
             }
 
@@ -382,6 +401,8 @@ public final class TemperatureTask implements Runnable {
         long now = System.currentTimeMillis();
         long warmingLeft = getRemainingBuffSeconds(this.warmingBuffExpiry, playerId, now);
         long coolingLeft = getRemainingBuffSeconds(this.coolingBuffExpiry, playerId, now);
+        long customWarmLeft = getRemainingCustomBuffSeconds(this.customWarmBuffs, playerId, now);
+        long customCoolLeft = getRemainingCustomBuffSeconds(this.customCoolBuffs, playerId, now);
         boolean breweryActive = (currentSeason == Season.WINTER || currentSeason == Season.AUTUMN)
                 && isWarmedByBrewery(player);
 
@@ -391,6 +412,14 @@ public final class TemperatureTask implements Runnable {
         }
         if (coolingLeft > 0L) {
             consumableBonus += this.configCache.getCoolingBuffCelsius();
+        }
+        if (customWarmLeft > 0L) {
+            consumableBonus += this.customWarmBuffs.get(playerId)[0];
+            warmingLeft = Math.max(warmingLeft, customWarmLeft);
+        }
+        if (customCoolLeft > 0L) {
+            consumableBonus += this.customCoolBuffs.get(playerId)[0];
+            coolingLeft = Math.max(coolingLeft, customCoolLeft);
         }
         if (breweryActive && currentSeason == Season.WINTER) {
             consumableBonus += this.configCache.getBreweryWinterWarmthBonus();
@@ -459,6 +488,33 @@ public final class TemperatureTask implements Runnable {
     public void grantWarmingBuff(UUID playerId) {
         this.warmingBuffExpiry.put(playerId, System.currentTimeMillis() + this.configCache.getWarmingBuffDurationMs());
         this.lastDisplayedTemperature.remove(playerId);
+    }
+
+    /**
+     * v1.3.0 : Buff thermique personnalisé (Soupe Forestière +6°C, Champignon doré +3°C, Pomme d'été -4°C...).
+     * Un emplacement chaud et un emplacement froid par joueur (le plus récent remplace le précédent).
+     */
+    public void grantCustomBuff(UUID playerId, double celsius, long durationMs) {
+        double[] entry = {celsius, System.currentTimeMillis() + durationMs};
+        if (celsius >= 0.0D) {
+            this.customWarmBuffs.put(playerId, entry);
+        } else {
+            this.customCoolBuffs.put(playerId, entry);
+        }
+        this.lastDisplayedTemperature.remove(playerId);
+    }
+
+    private long getRemainingCustomBuffSeconds(Map<UUID, double[]> map, UUID playerId, long nowMs) {
+        double[] entry = map.get(playerId);
+        if (entry == null) {
+            return 0L;
+        }
+        long diff = (long) entry[1] - nowMs;
+        if (diff <= 0L) {
+            map.remove(playerId);
+            return 0L;
+        }
+        return (diff + 999L) / 1000L;
     }
 
     public int getPlayerWetness(UUID playerId) {
@@ -631,6 +687,8 @@ public final class TemperatureTask implements Runnable {
         this.virtualFreezeTicks.remove(playerId);
         this.coolingBuffExpiry.remove(playerId);
         this.warmingBuffExpiry.remove(playerId);
+        this.customWarmBuffs.remove(playerId);
+        this.customCoolBuffs.remove(playerId);
     }
 
     public Double getCachedTemperature(UUID playerId) {

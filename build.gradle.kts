@@ -3,8 +3,8 @@ plugins {
 }
 
 group = "fr.alexuslab.paperseasons"
-version = "1.2.1"
-description = "Système de saisons réaliste O(1) v1.2.1 (Fonte active neige/glace, Almanach GUI, Événements) pour Raspberry Pi 5"
+version = "1.3.0"
+description = "Système de saisons réaliste O(1) v1.3.0 (Artisanat thermique, Cueillettes, Bulletin météo, Fonte active, Almanach GUI, Événements) pour Raspberry Pi 5"
 
 repositories {
     mavenCentral()

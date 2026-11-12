@@ -1,4 +1,4 @@
-# 🍂 PaperSeasons v1.2.1 — Active Thaw, Almanac & Atmospheric Update
+# 🍂 PaperSeasons v1.3.0 — Survival Crafting, Foraging & Almanac Update
 
 **PaperSeasons** est un système hybride complet composé d’un **Plugin PaperMC haute performance** (logique $O(1)$ stricte) et d’un **Data Pack compagnon** (`paper_seasons_dp`), conçu sur mesure pour tourner sur un **Raspberry Pi 5 (ARM64)** derrière un tunnel réseau **Playit.gg**, tout en cohabitant harmonieusement avec **Paper 26.2**, **Terralith**, **Incendium** et **BreweryX**.
 
@@ -138,11 +138,51 @@ Pour cultiver en plein hiver, les plantes doivent être abritées sous une **ser
 
 ---
 
-## 🎮 7. Commandes
+## ⚒️ 7. Artisanat Thermique & Cueillettes de Saison (v1.3.0)
+
+PaperSeasons v1.3.0 introduit de la survie thermique concrète accessible à tous les joueurs en vanilla pur :
+
+### 🛡️ Doublures Thermiques d'Armure (À l'Enclume — Coût : 3 Niveaux)
+*Permet d'adapter n'importe quelle pièce d'armure (Cuir, Fer, Mailles, Or, Diamant, Netherite) sans altérer ses enchantements ni ses garnitures (`ArmorTrim`) :*
+- ❄️ **Doublure Polaire (`+2.5 °C` par pièce en Hiver/Automne) :**
+  - **Recette Enclume :** `[Pièce d'armure]` + `[Laine (n'importe quelle couleur) OU Peau de lapin]`
+  - Cumulable jusqu'à **`+10.0 °C`** en set complet et divise par deux la pénalité de grand froid métallique.
+- ☀️ **Doublure Respirante (`-2.5 °C` par pièce en Été ou $> 30^\circ\text{C}$) :**
+  - **Recette Enclume :** `[Pièce d'armure]` + `[Boule de neige, Glace OU Bambou]`
+  - Cumulable jusqu'à **`-10.0 °C`** en set complet pour supporter les canicules en armure lourde.
+
+### 🍲 Recette : Soupe Forestière Épicée (Table de Craft)
+- **Recette en croix (`ShapedRecipe`) :**
+  - Ligne 1 : `[Champignon brun ou rouge]` + `[Patate cuite]` + `[Baies sucrées]`
+  - Ligne 2 : `[Bol]` au centre
+- **Effet :** Confère **`+6.0 °C` pendant 3 minutes** (hors été), parfait pour explorer les biomes glacés ou braver les blizzards.
+
+### 🌿 Cueillettes & Butins Saisonniers
+- **🍄 Champignon d'Automne Doré (Automne) :** 4% de chance en cassant des feuilles ou buissons (`+3.0 °C` pendant 90s).
+- **🍒 Baies Sauvages Sucrées (Automne) :** 4% de chance en cassant des feuilles ou buissons (`+3.0 °C` pendant 90s).
+- **🍏 Pomme Juteuse d'Été (Été) :** 3% de chance sur les feuilles de chêne (`-4.0 °C` pendant 90s, dissipe l'épuisement de canicule).
+- **🐟 Prise des Glaces (Hiver) :** 20% de chance en pêchant du cabillaud ou saumon (XP doublée, poisson `+4 nourriture` et `+4 saturation`).
+
+---
+
+## 🌅 8. Bulletin Météo au Réveil (v1.3.0)
+
+Lorsqu'un joueur passe la nuit dans un lit (`NIGHT_SKIP`), un bulletin matinal élégant s'affiche dans le chat et en sous-titre discret pour tous les joueurs du monde :
+- Jour actuel du calendrier et année.
+- Sous-saison en cours (`Début`, `Milieu`, `Fin`).
+- Tendance météo de la journée (`Ensoleillé`, `Pluvieux`, `Chutes de neige`, `Blizzard polaire`, `Canicule`, `Brume`, `Floraison`).
+- Température matinale ressentie.
+
+---
+
+## 🎮 9. Commandes
 
 | Commande | Rôle | Permission |
 | :--- | :--- | :--- |
-| `/season` ou `/season status` | Diagnostic complet : saison, sous-saison, jour, heure solaire, température exacte, badges d'humidité `💧` et de vent `🌬️`, état des buffs. | Accessible à tous |
+| `/season` ou `/season calendar` | Ouvre l'**Almanach des Saisons interactif** (GUI 27 slots avec horloge astronomique, guide agricole, bilan thermique et guide des crafts). | Accessible à tous |
+| `/season status` | Bilan textuel complet dans le chat (saison, sous-saison, heure solaire, température exacte, vent, abri, buffs). | Accessible à tous |
+| `/season thaw [rayon]` | Déclenche un **dégel d'urgence** de la neige/glace résiduelle (sans toucher aux biomes polaires natifs). Rayon par défaut : 48, max : 128. | `paperseasons.admin` (ou OP) |
+| `/season event <type>` | Déclenche ou annule un événement météo rare (`BLIZZARD`, `HEATWAVE`, `AUTUMN_MIST`, `SPRING_BLOOM`, `NONE`). | `paperseasons.admin` (ou OP) |
 | `/season nextday` | Fait avancer le calendrier d'un jour immédiatement. | `paperseasons.admin` (ou OP) |
 | `/season next` | Bascule immédiatement à la saison suivante. | `paperseasons.admin` (ou OP) |
 | `/season set <SAISON>` | Définit la saison (`SPRING`, `SUMMER`, `AUTUMN`, `WINTER`) et réinitialise au Jour 1. | `paperseasons.admin` (ou OP) |
@@ -161,14 +201,16 @@ e:/minecraft/PaperSeasons/
 │   └── overlay_26_2/data/paperseasons/worldgen/biome/
 └── src/main/
     ├── resources/
-    │   ├── paper-plugin.yml           # Déclaration Paper Plugin 1.1.0
+    │   ├── paper-plugin.yml           # Déclaration Paper Plugin 1.3.0
     │   └── config.yml                 # Configuration complète documentée
     └── java/fr/alexuslab/paperseasons/
         ├── PaperSeasonsPlugin.java    # Cycle de vie et enregistrements
-        ├── SeasonManager.java         # Calendrier, sous-saisons, DO_DAYLIGHT_CYCLE
+        ├── SeasonManager.java         # Calendrier, sous-saisons, DO_DAYLIGHT_CYCLE, événements
         ├── SeasonConfigCache.java     # Caches immuables EnumMap O(1)
-        ├── TemperatureTask.java       # Thermorégulation O(1), wetness, wind chill
-        ├── SeasonEnvironmentListener.java # Événements cultures, élevage, pêche, nourriture
+        ├── TemperatureTask.java       # Thermorégulation O(1), wetness, wind chill, doublures PDC
+        ├── SeasonEnvironmentListener.java # Événements météo, cultures, cueillettes, fonte O(1)
+        ├── SeasonCraftingManager.java # Artisanat des doublures d'armure, soupe & cueillettes
+        ├── SeasonCalendarGui.java     # GUI interactive 27 slots de l'Almanach (/season)
         ├── BiomePacketSpoofer.java    # Pipeline Netty 3D autonome (sans mod)
         └── SeasonCommand.java         # Interface de commande /season
 ```

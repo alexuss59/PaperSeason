@@ -19,6 +19,7 @@ public final class PaperSeasonsPlugin extends JavaPlugin implements Listener {
     private SeasonEnvironmentListener environmentListener;
     private BiomePacketSpoofer biomePacketSpoofer;
     private SeasonCalendarGui calendarGui;
+    private SeasonCraftingManager craftingManager;
 
     @Override
     public void onEnable() {
@@ -47,17 +48,22 @@ public final class PaperSeasonsPlugin extends JavaPlugin implements Listener {
         // 5b. Almanach interactif GUI 27 slots (/season calendar)
         this.calendarGui = new SeasonCalendarGui(this);
 
+        // 5c. Artisanat thermique v1.3.0 (doublures d'armure + Soupe Forestière Épicée)
+        this.craftingManager = new SeasonCraftingManager(this);
+        this.craftingManager.registerRecipes();
+
         // 6. Enregistrement des événements Paper
         PluginManager pm = Bukkit.getPluginManager();
         pm.registerEvents(this, this);
         pm.registerEvents(this.environmentListener, this);
         pm.registerEvents(this.biomePacketSpoofer, this);
         pm.registerEvents(this.calendarGui, this);
+        pm.registerEvents(this.craftingManager, this);
 
         // 7. Enregistrement natif de la commande /season dans la CommandMap Paper
         Bukkit.getCommandMap().register("paperseasons", new SeasonCommand(this));
 
-        getLogger().info("[PaperSeasons] v1.2.1 Activé avec succès (Saison : "
+        getLogger().info("[PaperSeasons] v1.3.0 Activé avec succès (Saison : "
                 + this.seasonManager.getCurrentSeason().name()
                 + " [" + this.seasonManager.getCurrentSubSeason().name() + "], Jour "
                 + this.seasonManager.getCurrentDayInSeason()
@@ -66,6 +72,9 @@ public final class PaperSeasonsPlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        if (this.craftingManager != null) {
+            this.craftingManager.unregisterRecipes();
+        }
         if (this.environmentListener != null) {
             this.environmentListener.stopWinterStormTask();
         }
@@ -122,6 +131,10 @@ public final class PaperSeasonsPlugin extends JavaPlugin implements Listener {
 
     public BiomePacketSpoofer getBiomePacketSpoofer() {
         return this.biomePacketSpoofer;
+    }
+
+    public SeasonCraftingManager getCraftingManager() {
+        return this.craftingManager;
     }
 
     public SeasonCalendarGui getCalendarGui() {
